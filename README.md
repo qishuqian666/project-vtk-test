@@ -9,9 +9,8 @@ vtk结合qt显示三维数据，包含ply obj
 
 #### 安装教程
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+1.  VTK-8.2.0源码编译(Cmake+VS2022+Qt5.12.12):https://blog.csdn.net/weixin_42964413/article/details/147409614?spm=1001.2014.3001.5502
+2.  qt5.12.12
 
 #### 使用说明
 

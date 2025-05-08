@@ -1,3 +1,5 @@
+build/
+vtk-8.2.0/
 # Prerequisites
 *.d
 
