@@ -1,6 +1,8 @@
 /* 三维地形数据显示 */
 #ifndef CDS_FRONTEND_THREE_DIMENSIONAL_DISPLAY_PAGE_H__
 #define CDS_FRONTEND_THREE_DIMENSIONAL_DISPLAY_PAGE_H__
+#include "ScaleBarController.h"
+
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QLineEdit>
@@ -15,6 +17,9 @@
 #include <vtkAxesActor.h>
 #include <vtkLookupTable.h>
 #include <vtkOrientationMarkerWidget.h>
+#include <vtkTextMapper.h>
+#include <vtkScalarBarActor.h>
+#include <vtkColorTransferFunction.h>
 
 class ThreeDimensionalDisplayPage : public QWidget
 {
@@ -37,6 +42,14 @@ private:
     void loadObjFile(vtkSmartPointer<vtkPolyData> _poly_data);
     // 加载坐标轴
     void addCoordinateAxes();
+    // 标量颜色图例
+    void addScalarColorLegend();
+    // 封装添加比例尺的函数
+    // void addScaleBar();
+    // 更新函数：根据相机变焦自动更新比例尺长度
+    // void updateScaleBar();
+    // 封装滚轮事件监听逻辑
+    // void connectInteractorToScaleBar();
     // 添加addBoundingBox
     void addBoundingBox(vtkSmartPointer<vtkPolyData> polyData);
     // 点击按钮之后的槽函数
@@ -96,6 +109,11 @@ private:
     bool is_points_visible_;        // 控制点的显隐状态
     int current_color_style;        // 0:Jet, 1:Viridis, 2:CoolWarm, 3:Grayscale, 4:Rainbow
     double current_scalar_range[2]; // 保存当前标量范围
+    // 添加颜色图例
+    vtkNew<vtkScalarBarActor> scalarBar;
+    vtkNew<vtkColorTransferFunction> colorTF;
+    // 比例尺
+    std::unique_ptr<ScaleBarController> scaleBarController_;
 };
 
 #endif

@@ -18,11 +18,22 @@ include(${VTK_USE_FILE})
 # Print VTK libraries for debugging
 message(STATUS "VTK_LIBRARIES: ${VTK_LIBRARIES}")
 
-add_executable(MyApp
+# 添加源文件和头文件
+set(SOURCES
     main.cpp
     ThreeDViewWidget.cpp
-    ThreeDViewWidget.h
+    ScaleBarController.cpp
+    # 其他源文件
 )
+
+set(HEADERS
+    ThreeDViewWidget.h
+    ScaleBarController.h
+    # 其他头文件
+)
+
+# 添加可执行文件，同时包含源文件和头文件
+add_executable(MyApp ${SOURCES} ${HEADERS})
 
 target_link_libraries(MyApp
     Qt5::Widgets

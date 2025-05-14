@@ -7,6 +7,8 @@
 #include <qDebug>
 #include <QDoubleValidator>
 #include <QSlider>
+#include <iostream>
+#include <sstream>
 #include <vtkActor.h>
 #include <vtkCamera.h>
 #include <vtkCylinderSource.h>
@@ -33,12 +35,25 @@
 #include <vtkTextRepresentation.h>
 #include <vtkTexturedButtonRepresentation2D.h>
 #include <vtkCallbackCommand.h>
+#include <vtkLineSource.h>
+#include <vtkPolyDataMapper2D.h>
+#include <vtkProperty2D.h>
 
 #include <vtkAutoInit.h>
 VTK_MODULE_INIT(vtkRenderingOpenGL2);
 VTK_MODULE_INIT(vtkInteractionStyle);
 VTK_MODULE_INIT(vtkRenderingFreeType);
 VTK_MODULE_INIT(vtkRenderingContextOpenGL2);
+
+// 定义静态回调函数
+// static void ScaleBarInteractionCallback(vtkObject *caller, unsigned long eventId, void *clientData, void *callData)
+// {
+//     ScaleBarController *scaleBar = static_cast<ScaleBarController *>(clientData);
+//     if (scaleBar)
+//     {
+//         scaleBar->onInteraction();
+//     }
+// }
 
 ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
 {
@@ -99,6 +114,25 @@ ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
     interactor_ = m_pScene->GetInteractor();
     renderWindow_->SetInteractor(interactor_);
     addCoordinateAxes();
+    // 比例尺
+    // 将当前渲染器中的相机设置为平行投影模式
+    // renderer_->GetActiveCamera()->ParallelProjectionOn();
+    // auto *scaleBar = new ScaleBarController(renderer_);
+    // scaleBar->setPixelLength(200); // 固定像素长度
+    // scaleBar->setColor(Qt::white); // 设置颜色
+    // scaleBar->update();            // 初始绘制比例尺
+
+    // vtkRenderWindowInteractor *interactor = m_pScene->GetRenderWindow()->GetInteractor();
+    // vtkSmartPointer<vtkCallbackCommand> interactionCallback = vtkSmartPointer<vtkCallbackCommand>::New();
+    // interactionCallback->SetClientData(scaleBar);
+    // interactionCallback->SetCallback(ScaleBarInteractionCallback);
+    // 正确调用 AddObserver
+    // interactor->AddObserver(vtkCommand::InteractionEvent, interactionCallback);
+
+    // 创建比例尺控制器// 初始化比例尺控制器
+    scaleBarController_ = std::make_unique<ScaleBarController>(renderer_, renderWindow_, interactor_);
+    // 启动交互器
+    interactor_->Initialize();
     renderWindow_->Render();
 }
 
@@ -305,16 +339,20 @@ void ThreeDimensionalDisplayPage::loadPlyFile(vtkSmartPointer<vtkPolyData> _poly
 
     // 清空旧Actor，设置背景
     renderer_->RemoveAllViewProps();         // 清空旧的视图属性
-    renderer_->SetBackground(1.0, 1.0, 1.0); // 设置背景颜色
+    renderer_->SetBackground(0.5, 0.5, 0.5); // 设置背景颜色
     renderer_->AddActor(ply_point_actor_);   // 添加点云演员
 
-    // 添加三维坐标轴
-    addCoordinateAxes();
     //  添加BoundingBox
     addBoundingBox(transformFilter->GetOutput());
 
     renderer_->ResetCamera();
     renderWindow_->Render();
+
+    if (scaleBarController_)
+    {
+        scaleBarController_->ReAddToRenderer();
+        scaleBarController_->UpdateScaleBar(); // 主动触发更新比例尺显示
+    }
     m_pScene->update();
 }
 
@@ -322,7 +360,7 @@ void ThreeDimensionalDisplayPage::loadPlyFile(vtkSmartPointer<vtkPolyData> _poly
 void ThreeDimensionalDisplayPage::loadObjFile(vtkSmartPointer<vtkPolyData> _poly_data)
 {
     renderer_->RemoveAllViewProps();
-    renderer_->SetBackground(1.0, 1.0, 1.0); // 白色背景
+    renderer_->SetBackground(0.5, 0.5, 0.5); // 白色背景
 
     // 获取边界和中心
     double bounds[6];
@@ -400,6 +438,43 @@ void ThreeDimensionalDisplayPage::addCoordinateAxes()
     marker_->SetViewport(0.8, 0.0, 1.0, 0.2);
     marker_->SetEnabled(1);
     marker_->InteractiveOff(); // 坐标轴 不可拖动（禁用交互）
+}
+
+void ThreeDimensionalDisplayPage::addScalarColorLegend()
+{
+    colorTF->SetColorSpaceToHSV();
+    colorTF->AddRGBPoint(0.0, 0.0, 0.0, 1.0); // 蓝色
+    colorTF->AddRGBPoint(0.5, 0.0, 1.0, 0.0); // 绿色
+    colorTF->AddRGBPoint(1.0, 1.0, 0.0, 0.0); // 红色
+
+    scalarBar->SetLookupTable(colorTF);
+    scalarBar->SetTitle("Scale");
+    scalarBar->UnconstrainedFontSizeOn();
+    scalarBar->SetNumberOfLabels(5);
+    scalarBar->SetPosition(0.6, 0.05); // 调整位置到右下角坐标轴左侧
+    scalarBar->SetWidth(0.15);
+    scalarBar->SetHeight(0.2);
+
+    // 设置比例尺文字和刻度线为黑色
+    vtkTextProperty *textProp = scalarBar->GetLabelTextProperty();
+    textProp->SetColor(0.0, 0.0, 0.0); // 黑色
+    textProp->SetFontSize(12);
+    textProp->BoldOff();
+    textProp->ItalicOff();
+    textProp->ShadowOff();
+
+    vtkTextProperty *titleProp = scalarBar->GetTitleTextProperty();
+    titleProp->SetColor(0.0, 0.0, 0.0); // 黑色
+    titleProp->SetFontSize(14);
+    titleProp->BoldOff();
+    titleProp->ItalicOff();
+    titleProp->ShadowOff();
+
+    // 设置刻度线颜色为黑色
+    scalarBar->SetDrawTickLabels(1);
+    scalarBar->GetLabelTextProperty()->SetColor(0.0, 0.0, 0.0);
+
+    renderer_->AddActor2D(scalarBar);
 }
 
 void ThreeDimensionalDisplayPage::addBoundingBox(vtkSmartPointer<vtkPolyData> polyData)
