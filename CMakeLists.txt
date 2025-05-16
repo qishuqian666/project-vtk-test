@@ -23,12 +23,16 @@ set(SOURCES
     main.cpp
     ThreeDViewWidget.cpp
     ScaleBarController.cpp
+    MeshSliceController.cpp
+    BoxClipperController.cpp
     # 其他源文件
 )
 
 set(HEADERS
     ThreeDViewWidget.h
     ScaleBarController.h
+    MeshSliceController.h
+    BoxClipperController.h
     # 其他头文件
 )
 

@@ -2,6 +2,8 @@
 #ifndef CDS_FRONTEND_THREE_DIMENSIONAL_DISPLAY_PAGE_H__
 #define CDS_FRONTEND_THREE_DIMENSIONAL_DISPLAY_PAGE_H__
 #include "ScaleBarController.h"
+#include "MeshSliceController.h"
+#include "BoxClipperController.h"
 
 #include <QWidget>
 #include <QVBoxLayout>
@@ -114,6 +116,11 @@ private:
     vtkNew<vtkColorTransferFunction> colorTF;
     // 比例尺
     std::unique_ptr<ScaleBarController> scaleBarController_;
+    // 切面图
+    std::unique_ptr<MeshSliceController> meshSliceController_;
+    // 箱形剪控制器
+    std::unique_ptr<BoxClipperController> boxClipper_;
+    bool boxClipper_enabled_;
 };
 
 #endif

@@ -80,9 +80,6 @@ ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
     setLayout(main_layout_);
     setMinimumSize(800, 600);
 
-    initSelectFilePath();
-    initControlBtn();
-
     m_pScene = new QVTKOpenGLWidget();
     main_layout_->addWidget(m_pScene);
 
@@ -114,25 +111,21 @@ ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
     interactor_ = m_pScene->GetInteractor();
     renderWindow_->SetInteractor(interactor_);
     addCoordinateAxes();
-    // 比例尺
-    // 将当前渲染器中的相机设置为平行投影模式
-    // renderer_->GetActiveCamera()->ParallelProjectionOn();
-    // auto *scaleBar = new ScaleBarController(renderer_);
-    // scaleBar->setPixelLength(200); // 固定像素长度
-    // scaleBar->setColor(Qt::white); // 设置颜色
-    // scaleBar->update();            // 初始绘制比例尺
 
-    // vtkRenderWindowInteractor *interactor = m_pScene->GetRenderWindow()->GetInteractor();
-    // vtkSmartPointer<vtkCallbackCommand> interactionCallback = vtkSmartPointer<vtkCallbackCommand>::New();
-    // interactionCallback->SetClientData(scaleBar);
-    // interactionCallback->SetCallback(ScaleBarInteractionCallback);
-    // 正确调用 AddObserver
-    // interactor->AddObserver(vtkCommand::InteractionEvent, interactionCallback);
-
-    // 创建比例尺控制器// 初始化比例尺控制器
+    // 创建比例尺控制器
     scaleBarController_ = std::make_unique<ScaleBarController>(renderer_, renderWindow_, interactor_);
     // 启动交互器
     interactor_->Initialize();
+    // 切面图
+    meshSliceController_ = std::make_unique<MeshSliceController>(renderer_);
+    meshSliceController_->SetOriginalActor(testActor);
+    meshSliceController_->UpdatePolyData(cylinderSource->GetOutput()); // 传入最终用于渲染的 polydata
+
+    boxClipper_ = std::make_unique<BoxClipperController>(interactor_, renderer_);
+    boxClipper_enabled_ = false;
+    boxClipper_->SetInputDataAndReplaceOriginal(cylinderSource->GetOutput(), testActor);
+    initSelectFilePath();
+    initControlBtn();
     renderWindow_->Render();
 }
 
@@ -215,6 +208,39 @@ void ThreeDimensionalDisplayPage::initControlBtn()
     control_btn_layout->addWidget(grayscale_btn);
     QPushButton *rainbow_btn = new QPushButton("Rainbow");
     control_btn_layout->addWidget(rainbow_btn);
+
+    // 第二排按钮 控制切面图显示
+    QHBoxLayout *control_btn_layout_2 = new QHBoxLayout();
+    main_layout_->addLayout(control_btn_layout_2);
+    QPushButton *btnSliceX = new QPushButton("SliceX");
+    control_btn_layout_2->addWidget(btnSliceX);
+    QPushButton *btnSliceY = new QPushButton("btnSliceY");
+    control_btn_layout_2->addWidget(btnSliceY);
+    QPushButton *btnSliceZ = new QPushButton("btnSliceZ");
+    control_btn_layout_2->addWidget(btnSliceZ);
+    QPushButton *hideSlice = new QPushButton("hideSlice");
+    control_btn_layout_2->addWidget(hideSlice);
+    QPushButton *cross_section = new QPushButton("cross section");
+    control_btn_layout_2->addWidget(cross_section);
+
+    connect(btnSliceX, &QPushButton::clicked, this, [=]()
+            { meshSliceController_->ShowSlice(SLICE_X); renderWindow_->Render(); });
+
+    connect(btnSliceY, &QPushButton::clicked, this, [=]()
+            { meshSliceController_->ShowSlice(SLICE_Y); renderWindow_->Render(); });
+
+    connect(btnSliceZ, &QPushButton::clicked, this, [=]()
+            { meshSliceController_->ShowSlice(SLICE_Z); renderWindow_->Render(); });
+
+    connect(hideSlice, &QPushButton::clicked, this, [=]()
+            {
+    if (meshSliceController_)
+        meshSliceController_->HideSlice(); 
+        renderWindow_->Render(); });
+
+    connect(cross_section, &QPushButton::clicked, this, [=]()
+            { boxClipper_enabled_ = !boxClipper_enabled_;
+                boxClipper_->SetEnabled(boxClipper_enabled_); });
 
     // 连接按钮点击信号到颜色切换槽函数
     connect(jet_btn, &QPushButton::clicked, this, [this]()
@@ -345,6 +371,16 @@ void ThreeDimensionalDisplayPage::loadPlyFile(vtkSmartPointer<vtkPolyData> _poly
     //  添加BoundingBox
     addBoundingBox(transformFilter->GetOutput());
 
+    // ✅ 更新切面数据
+    if (meshSliceController_)
+    {
+        meshSliceController_->SetOriginalActor(ply_point_actor_);
+        meshSliceController_->UpdatePolyData(vertexGlyphFilter->GetOutput()); // 传入最终用于渲染的 polydata
+    }
+    boxClipper_->SetInputDataAndReplaceOriginal(vertexGlyphFilter->GetOutput(), ply_point_actor_);
+    boxClipper_enabled_ = false;
+    boxClipper_->SetEnabled(boxClipper_enabled_);
+
     renderer_->ResetCamera();
     renderWindow_->Render();
 
@@ -417,8 +453,23 @@ void ThreeDimensionalDisplayPage::loadObjFile(vtkSmartPointer<vtkPolyData> _poly
     renderer_->AddActor(pointsActor_);
     pointsActor_->SetVisibility(is_points_visible_);
 
+    // ✅ 更新切面数据
+    vtkPolyData *polyData = vtkPolyData::SafeDownCast(elevationFilter->GetOutput());
+    if (meshSliceController_)
+    {
+        meshSliceController_->SetOriginalActor(surfaceActor_);
+        meshSliceController_->UpdatePolyData(polyData); // 传入最终用于渲染的 polydata
+    }
+    boxClipper_->SetInputDataAndReplaceOriginal(polyData, surfaceActor_);
+    boxClipper_enabled_ = false;
+    boxClipper_->SetEnabled(boxClipper_enabled_);
     renderer_->ResetCamera();
     renderWindow_->Render();
+    if (scaleBarController_)
+    {
+        scaleBarController_->ReAddToRenderer();
+        scaleBarController_->UpdateScaleBar(); // 主动触发更新比例尺显示
+    }
     m_pScene->update();
 }
 
