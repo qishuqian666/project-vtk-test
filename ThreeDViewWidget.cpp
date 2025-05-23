@@ -38,6 +38,8 @@
 #include <vtkLineSource.h>
 #include <vtkPolyDataMapper2D.h>
 #include <vtkProperty2D.h>
+#include <vtkTransformFilter.h>
+#include <vtkCubeSource.h>
 
 #include <vtkAutoInit.h>
 VTK_MODULE_INIT(vtkRenderingOpenGL2);
@@ -72,6 +74,10 @@ ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
     current_color_style = 0;       // 0:Jet, 1:Viridis, 2:CoolWarm, 3:Grayscale, 4:Rainbow
     current_scalar_range[0] = 0.0; // 最小值
     current_scalar_range[1] = 1.0; // 最大值
+
+    currentPolyDataType_ = ModelPipelineBuilder::ModelType::UNKNOWN;
+
+    model_pinpeline_builder_ = std::make_unique<ModelPipelineBuilder>();
 
     main_layout_ = new QVBoxLayout();
     this->setLayout(main_layout_);
@@ -192,8 +198,6 @@ void ThreeDimensionalDisplayPage::initControlBtn()
     // control_btn_layout->addWidget(new QLabel("Gamma (颜色分布)"));
     // control_btn_layout->addWidget(gamma_slider);
 
-    // 添加一个弹簧，将按钮推到左侧
-    // control_btn_layout->addStretch();
     // 新增颜色风格按钮组
     QLabel *color_style_label = new QLabel("Color Style:");
     control_btn_layout->addWidget(color_style_label);
@@ -222,6 +226,18 @@ void ThreeDimensionalDisplayPage::initControlBtn()
     control_btn_layout_2->addWidget(hideSlice);
     QPushButton *cross_section = new QPushButton("cross section");
     control_btn_layout_2->addWidget(cross_section);
+
+    // z轴拉伸
+    QLabel *zaxis_stretching_label = new QLabel("Z-axis stretching"); // 原：设置点大小1
+    control_btn_layout_2->addWidget(zaxis_stretching_label);
+    zaxis_stretching_edit_ = new QLineEdit();
+    zaxis_stretching_edit_->setText("1.0");
+    // 限制只能输入 0.1 到 100.0 之间的小数（支持最多两位小数）
+    zaxis_stretching_edit_->setFixedWidth(100);
+    zaxis_stretching_edit_->setValidator(validator);
+    control_btn_layout_2->addWidget(zaxis_stretching_edit_);
+    QPushButton *zaxis_stretching_btn_ = new QPushButton("OK"); // 原：确定
+    control_btn_layout_2->addWidget(zaxis_stretching_btn_);
 
     connect(btnSliceX, &QPushButton::clicked, this, [=]()
             { meshSliceController_->ShowSlice(SLICE_X); renderWindow_->Render(); });
@@ -259,6 +275,7 @@ void ThreeDimensionalDisplayPage::initControlBtn()
     connect(wireframeToggleButton_, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::toggleWireframeVisibility);
     connect(pointsToggleButton_, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::togglePointsVisibility);
     connect(point_size_btn_, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::setPointSize);
+    connect(zaxis_stretching_btn_, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::setZAxisStretching);
 }
 
 void ThreeDimensionalDisplayPage::loadModelByExtension(const QString &filePath)
@@ -268,209 +285,69 @@ void ThreeDimensionalDisplayPage::loadModelByExtension(const QString &filePath)
         qDebug() << "File does not exist: " << filePath;
         return;
     }
-
-    vtkSmartPointer<vtkPolyData> polyData = nullptr;
-    // 关键修改：添加 toStdString() 转换 QString 为 std::string
-    std::string ext = QFileInfo(filePath).suffix().toLower().toStdString();
-
-    if (ext == "ply")
+    if (!model_pinpeline_builder_->loadModel(filePath))
     {
-        vtkNew<vtkPLYReader> reader;
-        reader->SetFileName(filePath.toStdString().c_str());
-        reader->Update();
-        polyData = reader->GetOutput();
-        qDebug() << "vtkNew<vtkPLYReader> INIT ";
-        loadPlyFile(polyData);
-    }
-    else if (ext == "obj")
-    {
-        vtkNew<vtkOBJReader> reader;
-        reader->SetFileName(filePath.toStdString().c_str());
-        reader->Update();
-        polyData = reader->GetOutput();
-        qDebug() << "vtkNew<vtkOBJReader> INIT ";
-        loadObjFile(polyData);
-    }
-    else
-    {
-        qDebug() << "Unsupported file format: " << QString::fromStdString(ext);
+        qDebug() << "Failed to load model: " << filePath;
         return;
     }
 
-    if (!polyData || polyData->GetNumberOfPoints() == 0)
-    {
-        qDebug() << "Failed to load file or file is empty: " << filePath;
-        return;
-    }
-}
-
-void ThreeDimensionalDisplayPage::loadPlyFile(vtkSmartPointer<vtkPolyData> _poly_data)
-{
-    // 获取包围盒 (Bounds)
-    double bounds[6];
-    _poly_data->GetBounds(bounds);
-    // std::cout << "Bounds: [" << bounds[0] << ", " << bounds[1] << "] x ["
-    //           << bounds[2] << ", " << bounds[3] << "] x ["
-    //           << bounds[4] << ", " << bounds[5] << "]" << std::endl;
-    // std::cout << "Number of points: " << _poly_data->GetNumberOfPoints() << std::endl;
-    // std::cout << "Number of polys: " << _poly_data->GetNumberOfPolys() << std::endl;
-
-    // 计算模型中心
-    double center[3] = {
-        (bounds[0] + bounds[1]) / 2.0,
-        (bounds[2] + bounds[3]) / 2.0,
-        (bounds[4] + bounds[5]) / 2.0};
-
-    // 将整个模型向反方向移动，使其中心点对齐原点
-    vtkNew<vtkTransform> transform;
-    transform->Translate(-center[0], -center[1], -center[2]);
-
-    // 使用 vtkTransformPolyDataFilter 将上面的平移变换应用到原始模型 _poly_data 上，生成一个新的变换后的模型数据。
-    // transformFilter->Update(); 实际执行数据处理，之后可以从 transformFilter->GetOutput() 获取变换后的模型。
-    vtkNew<vtkTransformPolyDataFilter> transformFilter;
-    transformFilter->SetInputData(_poly_data);
-    transformFilter->SetTransform(transform.Get());
-    transformFilter->Update();
-
-    // Elevation着色（根据Z值） - 可选
-    vtkNew<vtkElevationFilter> elevationFilter;
-    elevationFilter->SetInputConnection(transformFilter->GetOutputPort());
-    elevationFilter->SetLowPoint(0, 0, bounds[4] - center[2]);
-    elevationFilter->SetHighPoint(0, 0, bounds[5] - center[2]);
-    elevationFilter->Update();
-
-    double scalarRange[2];
-    elevationFilter->GetOutput()->GetScalarRange(scalarRange);
-    vtkSmartPointer<vtkLookupTable> colorLookupTable = createJetLookupTable(scalarRange[0], scalarRange[1]);
-
-    // 加入拓扑结构：点转为vtkVertex 显示点的关键代码
-    // 将 vtkPolyData 中每个“孤立点”转换为一个 vtkVertex 图元，加入到拓扑结构中，使得 VTK 能将其作为可渲染的点显示出来。
-    auto vertexGlyphFilter = vtkSmartPointer<vtkVertexGlyphFilter>::New();
-    vertexGlyphFilter->AddInputData(elevationFilter->GetOutput());
-    vertexGlyphFilter->Update();
-
-    // 映射器
-    auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputConnection(vertexGlyphFilter->GetOutputPort()); // 用加了点结构的polydata
-    mapper->SetScalarRange(elevationFilter->GetOutput()->GetScalarRange());
-    mapper->SetLookupTable(colorLookupTable);
-    mapper->SetColorModeToMapScalars();
-    mapper->ScalarVisibilityOn();
-    mapper->Update();
-
-    // Actor
-    ply_point_actor_ = vtkSmartPointer<vtkActor>::New();
-    ply_point_actor_->SetMapper(mapper);
-    ply_point_actor_->GetProperty()->SetPointSize(point_size_edit_->text().toInt());
-
-    // 清空旧Actor，设置背景
-    renderer_->RemoveAllViewProps();         // 清空旧的视图属性
-    renderer_->SetBackground(0.5, 0.5, 0.5); // 设置背景颜色
-    renderer_->AddActor(ply_point_actor_);   // 添加点云演员
-
-    //  添加BoundingBox
-    addBoundingBox(transformFilter->GetOutput());
-
-    // ✅ 更新切面数据
-    if (meshSliceController_)
-    {
-        meshSliceController_->SetOriginalActor(ply_point_actor_);
-        meshSliceController_->UpdatePolyData(vertexGlyphFilter->GetOutput()); // 传入最终用于渲染的 polydata
-    }
-    boxClipper_->SetInputDataAndReplaceOriginal(vertexGlyphFilter->GetOutput(), ply_point_actor_);
-    boxClipper_enabled_ = false;
-    boxClipper_->SetEnabled(boxClipper_enabled_);
-
-    renderer_->ResetCamera();
-    renderWindow_->Render();
-
-    if (scaleBarController_)
-    {
-        scaleBarController_->ReAddToRenderer();
-        scaleBarController_->UpdateScaleBar(); // 主动触发更新比例尺显示
-    }
-    m_pScene->update();
-}
-
-// 在 loadObjFile 中
-void ThreeDimensionalDisplayPage::loadObjFile(vtkSmartPointer<vtkPolyData> _poly_data)
-{
     renderer_->RemoveAllViewProps();
-    renderer_->SetBackground(0.5, 0.5, 0.5); // 白色背景
-
-    // 获取边界和中心
-    double bounds[6];
-    _poly_data->GetBounds(bounds);
-    double center[3] = {
-        (bounds[0] + bounds[1]) / 2.0,
-        (bounds[2] + bounds[3]) / 2.0,
-        (bounds[4] + bounds[5]) / 2.0};
-
-    // Elevation Filter 按 Z 值添加标量
-    vtkNew<vtkElevationFilter> elevationFilter;
-    elevationFilter->SetInputData(_poly_data);
-    elevationFilter->SetLowPoint(0, 0, bounds[4]);  // 最低Z
-    elevationFilter->SetHighPoint(0, 0, bounds[5]); // 最高Z
-    elevationFilter->Update();
-    elevationFilter->GetOutput()->GetScalarRange(current_scalar_range); // 保存标量范围
-
-    // 获取标量范围
-    double scalarRange[2];
-    elevationFilter->GetOutput()->GetScalarRange(scalarRange);
-
-    vtkSmartPointer<vtkLookupTable> colorLookupTable = createJetLookupTable(scalarRange[0], scalarRange[1]);
-
-    // 映射器
-    vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputConnection(elevationFilter->GetOutputPort());
-    mapper->SetScalarRange(scalarRange);
-    mapper->SetLookupTable(colorLookupTable);
-    mapper->SetColorModeToMapScalars();
-    mapper->ScalarVisibilityOn();
-
-    // 面Actor
-    surfaceActor_ = vtkSmartPointer<vtkActor>::New();
-    surfaceActor_->SetMapper(mapper);
-    surfaceActor_->GetProperty()->SetOpacity(1.0);
-    renderer_->AddActor(surfaceActor_);
-    surfaceActor_->SetVisibility(is_surface_visible_);
-
-    // 线框Actor
-    wireframeActor_ = vtkSmartPointer<vtkActor>::New();
-    wireframeActor_->SetMapper(mapper);
-    wireframeActor_->GetProperty()->SetRepresentationToWireframe();
-    wireframeActor_->GetProperty()->SetColor(0.2, 0.2, 0.2);
-    wireframeActor_->GetProperty()->SetLineWidth(1.0);
-    renderer_->AddActor(wireframeActor_);
-    wireframeActor_->SetVisibility(is_wireframe_visible_);
-
-    // 点Actor
-    pointsActor_ = vtkSmartPointer<vtkActor>::New();
-    pointsActor_->SetMapper(mapper);
-    pointsActor_->GetProperty()->SetRepresentationToPoints();
-    pointsActor_->GetProperty()->SetPointSize(point_size_edit_->text().toInt());
-    pointsActor_->GetProperty()->SetColor(0.0, 0.0, 1.0);
-    renderer_->AddActor(pointsActor_);
-    pointsActor_->SetVisibility(is_points_visible_);
-
-    // ✅ 更新切面数据
-    vtkPolyData *polyData = vtkPolyData::SafeDownCast(elevationFilter->GetOutput());
-    if (meshSliceController_)
+    renderer_->SetBackground(0.5, 0.5, 0.5); // 可选：统一背景色
+    if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::PLY)
     {
-        meshSliceController_->SetOriginalActor(surfaceActor_);
-        meshSliceController_->UpdatePolyData(polyData); // 传入最终用于渲染的 polydata
+        ply_point_actor_ = model_pinpeline_builder_->getActor();
+        renderer_->AddActor(ply_point_actor_);
+        // 设置切面控制器
+        meshSliceController_->SetOriginalActor(ply_point_actor_);
+        meshSliceController_->UpdatePolyData(model_pinpeline_builder_->getProcessedPolyData());
+        // BoxClipper 设置
+        boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(),
+                                                    ply_point_actor_);
     }
-    boxClipper_->SetInputDataAndReplaceOriginal(polyData, surfaceActor_);
+    else if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::OBJ)
+    {
+        // 添加 OBJ 专属的线框、点、面 actor
+        surfaceActor_ = model_pinpeline_builder_->getSurfaceActor();
+        wireframeActor_ = model_pinpeline_builder_->getWireframeActor();
+        pointsActor_ = model_pinpeline_builder_->getPointsActor();
+
+        if (surfaceActor_)
+        {
+            surfaceActor_->SetVisibility(is_surface_visible_);
+            renderer_->AddActor(surfaceActor_);
+        }
+        if (wireframeActor_)
+        {
+            wireframeActor_->SetVisibility(is_wireframe_visible_);
+            renderer_->AddActor(wireframeActor_);
+        }
+        if (pointsActor_)
+        {
+            pointsActor_->SetVisibility(is_points_visible_);
+            renderer_->AddActor(pointsActor_);
+        }
+        meshSliceController_->SetOriginalActor(surfaceActor_);
+        meshSliceController_->UpdatePolyData(model_pinpeline_builder_->getProcessedPolyData());
+        // BoxClipper 设置
+        boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(),
+                                                    surfaceActor_);
+    }
+    // 1. 添加 BoundingBox
+    addBoundingBox(model_pinpeline_builder_->getProcessedPolyData());
     boxClipper_enabled_ = false;
-    boxClipper_->SetEnabled(boxClipper_enabled_);
+
+    // 4. 重设相机、刷新渲染器
     renderer_->ResetCamera();
     renderWindow_->Render();
+
+    // 5. 比例尺处理
     if (scaleBarController_)
     {
         scaleBarController_->ReAddToRenderer();
         scaleBarController_->UpdateScaleBar(); // 主动触发更新比例尺显示
     }
-    m_pScene->update();
+
+    m_pScene->update(); // 最后刷新界面
 }
 
 void ThreeDimensionalDisplayPage::addCoordinateAxes()
@@ -568,6 +445,30 @@ void ThreeDimensionalDisplayPage::OnBoundingBoxButtonClicked()
     renderWindow_->Render();
 }
 
+void ThreeDimensionalDisplayPage::updateBoundingBox()
+{
+    if (!ply_poly_data_ || !boundingBoxActor_)
+        return;
+
+    vtkSmartPointer<vtkTransformFilter> transformFilter = vtkSmartPointer<vtkTransformFilter>::New();
+    transformFilter->SetTransform(zaxis_transform_);
+    transformFilter->SetInputData(ply_poly_data_);
+    transformFilter->Update();
+
+    double bounds[6];
+    transformFilter->GetOutput()->GetBounds(bounds);
+
+    vtkSmartPointer<vtkCubeSource> cube = vtkSmartPointer<vtkCubeSource>::New();
+    cube->SetBounds(bounds);
+    cube->Update();
+
+    vtkSmartPointer<vtkPolyDataMapper> cubeMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    cubeMapper->SetInputConnection(cube->GetOutputPort());
+
+    boundingBoxActor_->SetMapper(cubeMapper);
+    renderWindow_->Render();
+}
+
 void ThreeDimensionalDisplayPage::toggleSurfaceVisibility()
 {
     if (surfaceActor_)
@@ -603,10 +504,16 @@ void ThreeDimensionalDisplayPage::togglePointsVisibility()
 
 void ThreeDimensionalDisplayPage::setPointSize()
 {
-    if (ply_point_actor_)
+    if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::PLY)
+    {
         ply_point_actor_->GetProperty()->SetPointSize(point_size_edit_->text().toInt());
-    if (pointsActor_)
+    }
+    else if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::OBJ)
+    {
         pointsActor_->GetProperty()->SetPointSize(point_size_edit_->text().toInt());
+    }
+    else if (currentPolyDataType_ == ModelPipelineBuilder::ModelType::UNKNOWN)
+        return;
     renderWindow_->Render();
 }
 
@@ -799,4 +706,24 @@ void ThreeDimensionalDisplayPage::updateColorStyle(int style)
             renderWindow_->Render();
         }
     }
+}
+
+void ThreeDimensionalDisplayPage::setZAxisStretching()
+{
+    double zScale = zaxis_stretching_edit_->text().toDouble();
+    model_pinpeline_builder_->setZAxisScale(zScale);
+    // 更新BoundingBox、Render等
+    addBoundingBox(model_pinpeline_builder_->getProcessedPolyData());
+    if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::PLY)
+    {
+        boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(),
+                                                    model_pinpeline_builder_->getActor());
+    }
+    else if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::OBJ)
+    {
+        boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(),
+                                                    model_pinpeline_builder_->getSurfaceActor());
+    }
+    boxClipper_enabled_ = false;
+    renderWindow_->Render();
 }

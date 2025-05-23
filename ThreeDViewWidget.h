@@ -4,6 +4,7 @@
 #include "ScaleBarController.h"
 #include "MeshSliceController.h"
 #include "BoxClipperController.h"
+#include "ModelPinelineBuilder.h"
 
 #include <QWidget>
 #include <QVBoxLayout>
@@ -38,24 +39,16 @@ private:
     void initControlBtn();
     // vtk加载文件
     void loadModelByExtension(const QString &filePath);
-    // 加载ply文件
-    void loadPlyFile(vtkSmartPointer<vtkPolyData> _poly_data);
-    // 加载obj文件
-    void loadObjFile(vtkSmartPointer<vtkPolyData> _poly_data);
     // 加载坐标轴
     void addCoordinateAxes();
     // 标量颜色图例
     void addScalarColorLegend();
-    // 封装添加比例尺的函数
-    // void addScaleBar();
-    // 更新函数：根据相机变焦自动更新比例尺长度
-    // void updateScaleBar();
-    // 封装滚轮事件监听逻辑
-    // void connectInteractorToScaleBar();
     // 添加addBoundingBox
     void addBoundingBox(vtkSmartPointer<vtkPolyData> polyData);
     // 点击按钮之后的槽函数
     void OnBoundingBoxButtonClicked();
+    // z轴拉伸后更新BoundingBox
+    void updateBoundingBox();
     // 控制面显示槽函数
     void toggleSurfaceVisibility();
     // 控制线显示槽函数
@@ -71,6 +64,8 @@ private:
     vtkSmartPointer<vtkLookupTable> createGrayscaleLookupTable(double minValue, double maxValue);
     vtkSmartPointer<vtkLookupTable> createRainbowLookupTable(double minValue, double maxValue);
     void updateColorStyle(int style); // 颜色风格切换函数
+    // 设置Z轴拉伸
+    void setZAxisStretching();
 
 private slots:
     void SlotFileSelectBtnClicked();
@@ -81,6 +76,8 @@ private:
     QVBoxLayout *main_layout_;  // 主布局
     QLineEdit *file_path_edit_; // 文件路径
 
+    std::unique_ptr<ModelPipelineBuilder> model_pinpeline_builder_; // 模型构建器;
+
     // 显示场景
     QVTKOpenGLWidget *m_pScene;
     vtkSmartPointer<vtkGenericOpenGLRenderWindow> renderWindow_;
@@ -90,13 +87,13 @@ private:
     // 边框显示
     vtkSmartPointer<vtkActor> boundingBoxActor_; // 用于存储BoundingBox的Actor
     bool isBoundingBoxVisible_;                  // 控制BoundingBox的显隐状态
-    // vtkSmartPointer<vtkTextActor> boundingBoxButtonActor_;
     QPushButton *bounding_box_control_btn_;
     //  坐标轴显示
     vtkSmartPointer<vtkAxesActor> axes_;
     vtkSmartPointer<vtkOrientationMarkerWidget> marker_;
     // 控制ply点大小
     QLineEdit *point_size_edit_;
+    vtkSmartPointer<vtkPolyData> ply_poly_data_;
     vtkSmartPointer<vtkActor> ply_point_actor_; // 点云Actor
     // 控制obj点线面的显隐
     vtkSmartPointer<vtkActor> surfaceActor_;
@@ -121,6 +118,11 @@ private:
     // 箱形剪控制器
     std::unique_ptr<BoxClipperController> boxClipper_;
     bool boxClipper_enabled_;
+    // z轴拉伸
+    QLineEdit *zaxis_stretching_edit_;
+    vtkSmartPointer<vtkTransform> zaxis_transform_;
+    // 当前加载的文件类型
+    ModelPipelineBuilder::ModelType currentPolyDataType_;
 };
 
 #endif

@@ -86,6 +86,8 @@ private:
      * 当盒子小部件的位置或大小发生变化时，该方法会重新执行裁剪操作并更新裁剪后的 Actor。
      */
     void UpdateClipping();
+
+    void CopyActorAppearance(vtkActor *from, vtkActor *to);
 };
 
 #endif // BOXCLIPPERCONTROLLER_H

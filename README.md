@@ -14,8 +14,8 @@ vtk结合qt显示三维数据，包含ply obj
 
 #### 使用说明
 
-1.  xxxx
-2.  xxxx
+1.  D:\mytestworkspace\vtktestgit\vtktest\build_release 目录下编译命令 cmake --build . --config Release
+2.  相同路径下执行命令 .\Release\MyApp.exe
 3.  xxxx
 
 #### 参与贡献

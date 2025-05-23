@@ -25,6 +25,7 @@ set(SOURCES
     ScaleBarController.cpp
     MeshSliceController.cpp
     BoxClipperController.cpp
+    ModelPinelineBuilder.cpp
     # 其他源文件
 )
 
@@ -33,6 +34,7 @@ set(HEADERS
     ScaleBarController.h
     MeshSliceController.h
     BoxClipperController.h
+    ModelPinelineBuilder.h
     # 其他头文件
 )
 

@@ -52,8 +52,11 @@ void BoxClipperController::SetInputDataAndReplaceOriginal(vtkSmartPointer<vtkPol
     clipper->SetInputData(inputData);
     boxWidget->SetInputData(inputData);
     boxWidget->PlaceWidget();
+    // ✅ 拷贝颜色、透明度、边框等属性
+    CopyActorAppearance(originalActor, clippedActor);
 
     UpdateClipping(); // 更新 planes 和裁剪结果
+    SetEnabled(false);
 }
 
 void BoxClipperController::SetEnabled(bool enabled)
@@ -85,6 +88,24 @@ void BoxClipperController::UpdateClipping()
     clipper->SetClipFunction(planes); // 使用这些平面裁剪
     clipper->InsideOutOn();           // 保留 box 内部数据
     clipper->Update();                // 更新裁剪结果
+}
+
+void BoxClipperController::CopyActorAppearance(vtkActor *from, vtkActor *to)
+{
+    // 拷贝 property
+    to->GetProperty()->DeepCopy(from->GetProperty());
+
+    // 拷贝 mapper 设置
+    vtkPolyDataMapper *fromMapper = vtkPolyDataMapper::SafeDownCast(from->GetMapper());
+    vtkPolyDataMapper *toMapper = vtkPolyDataMapper::SafeDownCast(to->GetMapper());
+    if (fromMapper && toMapper)
+    {
+        toMapper->SetScalarMode(fromMapper->GetScalarMode());
+        toMapper->SetScalarVisibility(fromMapper->GetScalarVisibility());
+        toMapper->SetColorMode(fromMapper->GetColorMode());
+        toMapper->SetLookupTable(fromMapper->GetLookupTable());
+        toMapper->SetScalarRange(fromMapper->GetScalarRange());
+    }
 }
 
 vtkSmartPointer<vtkActor> BoxClipperController::GetClippedActor()
