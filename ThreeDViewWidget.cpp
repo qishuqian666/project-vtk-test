@@ -75,8 +75,6 @@ ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
     current_scalar_range[0] = 0.0; // 最小值
     current_scalar_range[1] = 1.0; // 最大值
 
-    currentPolyDataType_ = ModelPipelineBuilder::ModelType::UNKNOWN;
-
     model_pinpeline_builder_ = std::make_unique<ModelPipelineBuilder>();
 
     main_layout_ = new QVBoxLayout();
@@ -445,29 +443,29 @@ void ThreeDimensionalDisplayPage::OnBoundingBoxButtonClicked()
     renderWindow_->Render();
 }
 
-void ThreeDimensionalDisplayPage::updateBoundingBox()
-{
-    if (!ply_poly_data_ || !boundingBoxActor_)
-        return;
+// void ThreeDimensionalDisplayPage::updateBoundingBox()
+// {
+//     if (!ply_poly_data_ || !boundingBoxActor_)
+//         return;
 
-    vtkSmartPointer<vtkTransformFilter> transformFilter = vtkSmartPointer<vtkTransformFilter>::New();
-    transformFilter->SetTransform(zaxis_transform_);
-    transformFilter->SetInputData(ply_poly_data_);
-    transformFilter->Update();
+//     vtkSmartPointer<vtkTransformFilter> transformFilter = vtkSmartPointer<vtkTransformFilter>::New();
+//     transformFilter->SetTransform(zaxis_transform_);
+//     transformFilter->SetInputData(ply_poly_data_);
+//     transformFilter->Update();
 
-    double bounds[6];
-    transformFilter->GetOutput()->GetBounds(bounds);
+//     double bounds[6];
+//     transformFilter->GetOutput()->GetBounds(bounds);
 
-    vtkSmartPointer<vtkCubeSource> cube = vtkSmartPointer<vtkCubeSource>::New();
-    cube->SetBounds(bounds);
-    cube->Update();
+//     vtkSmartPointer<vtkCubeSource> cube = vtkSmartPointer<vtkCubeSource>::New();
+//     cube->SetBounds(bounds);
+//     cube->Update();
 
-    vtkSmartPointer<vtkPolyDataMapper> cubeMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    cubeMapper->SetInputConnection(cube->GetOutputPort());
+//     vtkSmartPointer<vtkPolyDataMapper> cubeMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+//     cubeMapper->SetInputConnection(cube->GetOutputPort());
 
-    boundingBoxActor_->SetMapper(cubeMapper);
-    renderWindow_->Render();
-}
+//     boundingBoxActor_->SetMapper(cubeMapper);
+//     renderWindow_->Render();
+// }
 
 void ThreeDimensionalDisplayPage::toggleSurfaceVisibility()
 {
@@ -512,8 +510,6 @@ void ThreeDimensionalDisplayPage::setPointSize()
     {
         pointsActor_->GetProperty()->SetPointSize(point_size_edit_->text().toInt());
     }
-    else if (currentPolyDataType_ == ModelPipelineBuilder::ModelType::UNKNOWN)
-        return;
     renderWindow_->Render();
 }
 
@@ -712,18 +708,43 @@ void ThreeDimensionalDisplayPage::setZAxisStretching()
 {
     double zScale = zaxis_stretching_edit_->text().toDouble();
     model_pinpeline_builder_->setZAxisScale(zScale);
-    // 更新BoundingBox、Render等
+
+    // 获取模型类型
+    auto modelType = model_pinpeline_builder_->getModelType();
+
+    // 1. 移除旧 actor（所有可能的）
+    renderer_->RemoveActor(model_pinpeline_builder_->getActor());          // PLY 点云 actor
+    renderer_->RemoveActor(model_pinpeline_builder_->getSurfaceActor());   // OBJ 面 actor
+    renderer_->RemoveActor(model_pinpeline_builder_->getWireframeActor()); // OBJ 线 actor
+    renderer_->RemoveActor(model_pinpeline_builder_->getPointsActor());    // OBJ 点 actor
+
+    // 2. 添加新 actor
+    if (modelType == ModelPipelineBuilder::ModelType::PLY)
+    {
+        renderer_->AddActor(model_pinpeline_builder_->getActor());
+    }
+    else if (modelType == ModelPipelineBuilder::ModelType::OBJ)
+    {
+        if (auto surfaceActor = model_pinpeline_builder_->getSurfaceActor())
+            renderer_->AddActor(surfaceActor);
+        if (auto wireframeActor = model_pinpeline_builder_->getWireframeActor())
+            renderer_->AddActor(wireframeActor);
+        if (auto pointsActor = model_pinpeline_builder_->getPointsActor())
+            renderer_->AddActor(pointsActor);
+    }
+
+    // 3. 更新 BoundingBox
     addBoundingBox(model_pinpeline_builder_->getProcessedPolyData());
-    if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::PLY)
-    {
-        boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(),
-                                                    model_pinpeline_builder_->getActor());
-    }
-    else if (model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::OBJ)
-    {
-        boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(),
-                                                    model_pinpeline_builder_->getSurfaceActor());
-    }
+
+    // 4. 更新 boxClipper
+    vtkSmartPointer<vtkActor> primaryActor = nullptr;
+    if (modelType == ModelPipelineBuilder::ModelType::PLY)
+        primaryActor = model_pinpeline_builder_->getActor();
+    else if (modelType == ModelPipelineBuilder::ModelType::OBJ)
+        primaryActor = model_pinpeline_builder_->getSurfaceActor();
+
+    boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(), primaryActor);
+
     boxClipper_enabled_ = false;
     renderWindow_->Render();
 }

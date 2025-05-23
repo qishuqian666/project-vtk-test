@@ -88,9 +88,32 @@ ModelPipelineBuilder::ModelType ModelPipelineBuilder::getModelType() const
 
 void ModelPipelineBuilder::updatePipeline()
 {
-    if (!originalPolyData_)
-        return;
+    // 清空旧状态
+    resetState();
 
+    // 变换（中心对齐 + Z拉伸）
+    applyTransform();
+
+    // 着色（按 Z 高度生成 scalar）
+    applyElevationColoring();
+
+    // 按模型类型构建渲染管线
+    if (modelType_ == ModelType::OBJ)
+        setupOBJPipeline();
+    else if (modelType_ == ModelType::PLY)
+        setupPLYPipeline();
+}
+
+void ModelPipelineBuilder::resetState()
+{
+    transformFilter_ = nullptr;
+    elevationFilter_ = nullptr;
+    processedSurfacePolyData_ = nullptr;
+    processedPointPolyData_ = nullptr;
+}
+
+void ModelPipelineBuilder::applyTransform()
+{
     double bounds[6];
     originalPolyData_->GetBounds(bounds);
     double center[3] = {
@@ -98,7 +121,6 @@ void ModelPipelineBuilder::updatePipeline()
         (bounds[2] + bounds[3]) * 0.5,
         (bounds[4] + bounds[5]) * 0.5};
 
-    // 中心对齐 + Z缩放
     auto transform = vtkSmartPointer<vtkTransform>::New();
     transform->Translate(-center[0], -center[1], -center[2]);
     transform->Scale(1.0, 1.0, zScale_);
@@ -107,112 +129,125 @@ void ModelPipelineBuilder::updatePipeline()
     transformFilter_->SetInputData(originalPolyData_);
     transformFilter_->SetTransform(transform);
     transformFilter_->Update();
+}
 
-    // 修正 elevation 使用的 Z 范围（基于 transform 后的 bounds）
-    double transformedBounds[6];
-    transformFilter_->GetOutput()->GetBounds(transformedBounds);
-    double lowZ = transformedBounds[4];
-    double highZ = transformedBounds[5];
+void ModelPipelineBuilder::applyElevationColoring()
+{
+    // 使用变换后的数据计算 elevation
+    double bounds[6];
+    transformFilter_->GetOutput()->GetBounds(bounds);
+    double lowZ = bounds[4];
+    double highZ = bounds[5];
 
-    // Elevation 着色
     elevationFilter_ = vtkSmartPointer<vtkElevationFilter>::New();
     elevationFilter_->SetInputConnection(transformFilter_->GetOutputPort());
     elevationFilter_->SetLowPoint(0, 0, lowZ);
     elevationFilter_->SetHighPoint(0, 0, highZ);
     elevationFilter_->Update();
+}
 
-    if (modelType_ == ModelType::OBJ)
-    {
-        // ================== 通用参数 ==================
-        auto basePolyData = vtkPolyData::SafeDownCast(elevationFilter_->GetOutput());
-        if (!basePolyData)
-        {
-            qDebug() << "Failed to cast elevation output to vtkPolyData";
-            return;
-        }
-        double *scalarRange = elevationFilter_->GetOutput()->GetScalarRange();
-        auto lut = createJetLookupTable(scalarRange[0], scalarRange[1]);
-        // 保存用于后续计算（如 BoundingBox、Clipper）
-        processedSurfacePolyData_ = basePolyData;
+void ModelPipelineBuilder::setupOBJPipeline()
+{
+    auto basePolyData = vtkPolyData::SafeDownCast(elevationFilter_->GetOutput());
+    if (!basePolyData)
+        return;
 
-        // ========== 面 ==========
-        auto surfaceMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-        surfaceMapper->SetInputData(basePolyData);
-        surfaceMapper->SetScalarRange(scalarRange);
-        surfaceMapper->SetLookupTable(lut);
-        surfaceMapper->SetColorModeToMapScalars();
-        surfaceMapper->ScalarVisibilityOn();
+    double *scalarRange = basePolyData->GetScalarRange();
+    auto lut = createJetLookupTable(scalarRange[0], scalarRange[1]);
 
+    processedSurfacePolyData_ = basePolyData;
+
+    // ---------- 面 ----------
+    if (!surfaceActor_)
         surfaceActor_ = vtkSmartPointer<vtkActor>::New();
-        surfaceActor_->SetMapper(surfaceMapper);
-        surfaceActor_->GetProperty()->SetOpacity(1.0);
-        surfaceActor_->GetProperty()->SetRepresentationToSurface();
 
-        // ========== 线 ==========
-        auto wireframeMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-        wireframeMapper->SetInputData(basePolyData);
-        wireframeMapper->SetScalarRange(scalarRange);
-        wireframeMapper->SetLookupTable(lut);
-        wireframeMapper->SetColorModeToMapScalars();
-        wireframeMapper->ScalarVisibilityOn();
+    auto surfaceMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    surfaceMapper->SetInputData(basePolyData);
+    surfaceMapper->SetScalarRange(scalarRange);
+    surfaceMapper->SetLookupTable(lut);
+    surfaceMapper->SetColorModeToMapScalars();
+    surfaceMapper->ScalarVisibilityOn();
 
+    surfaceActor_->SetMapper(surfaceMapper);
+    surfaceActor_->GetProperty()->SetOpacity(1.0);
+    surfaceActor_->GetProperty()->SetRepresentationToSurface();
+    surfaceActor_->GetProperty()->LightingOff(); // 纯色不受光照
+
+    // ---------- 线 ----------
+    if (!wireframeActor_)
         wireframeActor_ = vtkSmartPointer<vtkActor>::New();
-        wireframeActor_->SetMapper(wireframeMapper);
-        wireframeActor_->GetProperty()->SetRepresentationToWireframe();
-        wireframeActor_->GetProperty()->SetColor(0.2, 0.2, 0.2);
-        wireframeActor_->GetProperty()->SetLineWidth(1.0);
 
-        // ========== 点 ==========
-        auto glyphFilter = vtkSmartPointer<vtkVertexGlyphFilter>::New();
-        glyphFilter->SetInputData(basePolyData);
-        glyphFilter->Update();
+    auto wireframeMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    wireframeMapper->SetInputData(basePolyData);
+    wireframeMapper->SetScalarRange(scalarRange);
+    wireframeMapper->SetLookupTable(lut);
+    wireframeMapper->SetColorModeToMapScalars();
+    wireframeMapper->ScalarVisibilityOn();
 
-        processedPointPolyData_ = vtkSmartPointer<vtkPolyData>::New();
-        processedPointPolyData_->ShallowCopy(glyphFilter->GetOutput());
+    wireframeActor_->SetMapper(wireframeMapper);
+    wireframeActor_->GetProperty()->SetRepresentationToWireframe();
+    wireframeActor_->GetProperty()->SetColor(0.2, 0.2, 0.2);
+    wireframeActor_->GetProperty()->SetLineWidth(1.0);
+    wireframeActor_->GetProperty()->LightingOff();
 
-        auto pointsMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-        pointsMapper->SetInputData(processedPointPolyData_);
-        pointsMapper->SetScalarRange(processedPointPolyData_->GetScalarRange());
-        pointsMapper->SetLookupTable(lut);
-        pointsMapper->SetColorModeToMapScalars();
-        pointsMapper->ScalarVisibilityOn();
+    // ---------- 点 ----------
+    auto glyphFilter = vtkSmartPointer<vtkVertexGlyphFilter>::New();
+    glyphFilter->SetInputData(basePolyData);
+    glyphFilter->Update();
 
+    auto outputPolyData = glyphFilter->GetOutput();
+    if (!outputPolyData || outputPolyData->GetNumberOfPoints() == 0)
+        return;
+
+    processedPointPolyData_ = vtkSmartPointer<vtkPolyData>::New();
+    processedPointPolyData_->ShallowCopy(outputPolyData);
+
+    if (!pointsActor_)
         pointsActor_ = vtkSmartPointer<vtkActor>::New();
-        pointsActor_->SetMapper(pointsMapper);
-        pointsActor_->GetProperty()->SetRepresentationToPoints();
-        pointsActor_->GetProperty()->SetPointSize(1.0);
-        pointsActor_->GetProperty()->SetColor(0.0, 0.0, 1.0);
 
-        // 默认主 actor 设为面（用于 Clipper、Slice 等）
-        actor_ = surfaceActor_;
-    }
-    else if (modelType_ == ModelType::PLY)
-    {
-        // PLY 模型统一用 elevation + glyph 后的点数据表示
-        auto glyphFilter = vtkSmartPointer<vtkVertexGlyphFilter>::New();
-        glyphFilter->SetInputConnection(elevationFilter_->GetOutputPort());
-        glyphFilter->Update();
+    auto pointsMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    pointsMapper->SetInputData(processedPointPolyData_);
+    pointsMapper->SetScalarRange(scalarRange);
+    pointsMapper->SetLookupTable(lut);
+    pointsMapper->SetColorModeToMapScalars();
+    pointsMapper->ScalarVisibilityOn();
 
-        processedPointPolyData_ = vtkSmartPointer<vtkPolyData>::New();
-        processedPointPolyData_->ShallowCopy(glyphFilter->GetOutput());
+    pointsActor_->SetMapper(pointsMapper);
+    pointsActor_->GetProperty()->SetRepresentationToPoints();
+    pointsActor_->GetProperty()->SetPointSize(1.0);
+    pointsActor_->GetProperty()->LightingOff();
 
-        auto lut = createJetLookupTable(
-            processedPointPolyData_->GetScalarRange()[0],
-            processedPointPolyData_->GetScalarRange()[1]);
+    // 设置主 actor（用于 bbox、clipper）
+    actor_ = surfaceActor_;
+}
 
-        auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-        mapper->SetInputData(processedPointPolyData_);
-        mapper->SetScalarRange(processedPointPolyData_->GetScalarRange());
-        mapper->SetLookupTable(lut);
-        mapper->SetColorModeToMapScalars();
-        mapper->ScalarVisibilityOn();
+void ModelPipelineBuilder::setupPLYPipeline()
+{
+    auto glyphFilter = vtkSmartPointer<vtkVertexGlyphFilter>::New();
+    glyphFilter->SetInputConnection(elevationFilter_->GetOutputPort());
+    glyphFilter->Update();
 
-        actor_ = vtkSmartPointer<vtkActor>::New();
-        actor_->SetMapper(mapper);
+    auto polyData = glyphFilter->GetOutput();
+    if (!polyData || polyData->GetNumberOfPoints() == 0)
+        return;
 
-        // 保存为主数据（用于 BoundingBox、Clipper 等）
-        processedSurfacePolyData_ = processedPointPolyData_;
-    }
+    processedPolyData_ = vtkSmartPointer<vtkPolyData>::New();
+    processedPolyData_->ShallowCopy(polyData);
+
+    auto scalarRange = processedPolyData_->GetScalarRange();
+    auto lut = createJetLookupTable(scalarRange[0], scalarRange[1]);
+
+    auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    mapper->SetInputData(processedPolyData_);
+    mapper->SetScalarRange(scalarRange);
+    mapper->SetLookupTable(lut);
+    mapper->SetColorModeToMapScalars();
+    mapper->ScalarVisibilityOn();
+
+    actor_->SetMapper(mapper);
+    actor_->GetProperty()->SetRepresentationToPoints();
+    actor_->GetProperty()->SetPointSize(1.0);
+    actor_->GetProperty()->LightingOff(); // 确保无光照影响
 }
 
 vtkSmartPointer<vtkTransformPolyDataFilter> ModelPipelineBuilder::getTransformFilter() const

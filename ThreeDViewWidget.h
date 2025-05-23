@@ -48,7 +48,7 @@ private:
     // 点击按钮之后的槽函数
     void OnBoundingBoxButtonClicked();
     // z轴拉伸后更新BoundingBox
-    void updateBoundingBox();
+    // void updateBoundingBox();
     // 控制面显示槽函数
     void toggleSurfaceVisibility();
     // 控制线显示槽函数
@@ -121,8 +121,6 @@ private:
     // z轴拉伸
     QLineEdit *zaxis_stretching_edit_;
     vtkSmartPointer<vtkTransform> zaxis_transform_;
-    // 当前加载的文件类型
-    ModelPipelineBuilder::ModelType currentPolyDataType_;
 };
 
 #endif
