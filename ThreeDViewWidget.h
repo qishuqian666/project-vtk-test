@@ -47,8 +47,6 @@ private:
     void addBoundingBox(vtkSmartPointer<vtkPolyData> polyData);
     // 点击按钮之后的槽函数
     void OnBoundingBoxButtonClicked();
-    // z轴拉伸后更新BoundingBox
-    // void updateBoundingBox();
     // 控制面显示槽函数
     void toggleSurfaceVisibility();
     // 控制线显示槽函数
@@ -71,6 +69,8 @@ private slots:
     void SlotFileSelectBtnClicked();
     // 用于测试渲染效果
     void updateLUTWithGamma(double gamma);
+    // 点击箱体切割器按钮槽函数
+    void SlotCilckedCrossSectionBtn();
 
 private:
     QVBoxLayout *main_layout_;  // 主布局

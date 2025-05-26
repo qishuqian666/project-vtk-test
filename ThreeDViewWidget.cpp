@@ -252,9 +252,7 @@ void ThreeDimensionalDisplayPage::initControlBtn()
         meshSliceController_->HideSlice(); 
         renderWindow_->Render(); });
 
-    connect(cross_section, &QPushButton::clicked, this, [=]()
-            { boxClipper_enabled_ = !boxClipper_enabled_;
-                boxClipper_->SetEnabled(boxClipper_enabled_); });
+    connect(cross_section, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::SlotCilckedCrossSectionBtn);
 
     // 连接按钮点击信号到颜色切换槽函数
     connect(jet_btn, &QPushButton::clicked, this, [this]()
@@ -443,30 +441,6 @@ void ThreeDimensionalDisplayPage::OnBoundingBoxButtonClicked()
     renderWindow_->Render();
 }
 
-// void ThreeDimensionalDisplayPage::updateBoundingBox()
-// {
-//     if (!ply_poly_data_ || !boundingBoxActor_)
-//         return;
-
-//     vtkSmartPointer<vtkTransformFilter> transformFilter = vtkSmartPointer<vtkTransformFilter>::New();
-//     transformFilter->SetTransform(zaxis_transform_);
-//     transformFilter->SetInputData(ply_poly_data_);
-//     transformFilter->Update();
-
-//     double bounds[6];
-//     transformFilter->GetOutput()->GetBounds(bounds);
-
-//     vtkSmartPointer<vtkCubeSource> cube = vtkSmartPointer<vtkCubeSource>::New();
-//     cube->SetBounds(bounds);
-//     cube->Update();
-
-//     vtkSmartPointer<vtkPolyDataMapper> cubeMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-//     cubeMapper->SetInputConnection(cube->GetOutputPort());
-
-//     boundingBoxActor_->SetMapper(cubeMapper);
-//     renderWindow_->Render();
-// }
-
 void ThreeDimensionalDisplayPage::toggleSurfaceVisibility()
 {
     if (surfaceActor_)
@@ -563,6 +537,26 @@ void ThreeDimensionalDisplayPage::updateLUTWithGamma(double gamma)
 
     mapper->SetLookupTable(lut);
     renderWindow_->Render();
+}
+
+void ThreeDimensionalDisplayPage::SlotCilckedCrossSectionBtn()
+{
+    boxClipper_enabled_ = !boxClipper_enabled_;
+    // 如果使用箱体切割器默认只显示面 目前只切割了面
+    if (boxClipper_enabled_)
+    {
+        is_surface_visible_ = true;
+        surfaceActor_->SetVisibility(is_surface_visible_);
+        surfaceToggleButton_->setText("Hide Surface");
+        is_wireframe_visible_ = false;
+        wireframeActor_->SetVisibility(is_wireframe_visible_);
+        wireframeToggleButton_->setText("Show Wireframe");
+        is_points_visible_ = false;
+        pointsActor_->SetVisibility(is_points_visible_);
+        pointsToggleButton_->setText("Show Points");
+    }
+
+    boxClipper_->SetEnabled(boxClipper_enabled_);
 }
 
 void ThreeDimensionalDisplayPage::SlotFileSelectBtnClicked()
