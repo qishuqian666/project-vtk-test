@@ -5,8 +5,12 @@
 #include "MeshSliceController.h"
 #include "BoxClipperController.h"
 #include "ModelPinelineBuilder.h"
+#include "MeasurementController.h"
+#include "MeasurementMenuWidget.h"
+// #include "OverlayLineRenderer.h"
 
 #include <QWidget>
+#include <QEvent>
 #include <QVBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
@@ -37,6 +41,8 @@ private:
     void initSelectFilePath();
     // 初始化控制按钮
     void initControlBtn();
+    // 初始化测量菜单
+    void initMeasurementMenu();
     // vtk加载文件
     void loadModelByExtension(const QString &filePath);
     // 加载坐标轴
@@ -64,6 +70,9 @@ private:
     void updateColorStyle(int style); // 颜色风格切换函数
     // 设置Z轴拉伸
     void setZAxisStretching();
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event);
 
 private slots:
     void SlotFileSelectBtnClicked();
@@ -120,7 +129,12 @@ private:
     bool boxClipper_enabled_;
     // z轴拉伸
     QLineEdit *zaxis_stretching_edit_;
-    vtkSmartPointer<vtkTransform> zaxis_transform_;
+    // vtkSmartPointer<vtkTransform> zaxis_transform_;
+    //  测量功能
+    MeasurementMenuWidget *measurementMenuWidget_;
+    std::unique_ptr<MeasurementController> measurementController_;
+    QPushButton *measurement_btn_;
+    // std::unique_ptr<OverlayLineRenderer> overlayLineRenderer_;
 };
 
 #endif

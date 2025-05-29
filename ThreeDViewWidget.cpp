@@ -7,6 +7,7 @@
 #include <qDebug>
 #include <QDoubleValidator>
 #include <QSlider>
+#include <QMouseEvent>
 #include <iostream>
 #include <sstream>
 #include <vtkActor.h>
@@ -85,6 +86,7 @@ ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
     setMinimumSize(800, 600);
 
     m_pScene = new QVTKOpenGLWidget();
+    m_pScene->installEventFilter(this);
     main_layout_->addWidget(m_pScene);
 
     // ------------------------------
@@ -124,12 +126,15 @@ ThreeDimensionalDisplayPage::ThreeDimensionalDisplayPage(QWidget *parent)
     meshSliceController_ = std::make_unique<MeshSliceController>(renderer_);
     meshSliceController_->SetOriginalActor(testActor);
     meshSliceController_->UpdatePolyData(cylinderSource->GetOutput()); // 传入最终用于渲染的 polydata
-
+    // 初始化箱形剪控制器
     boxClipper_ = std::make_unique<BoxClipperController>(interactor_, renderer_);
     boxClipper_enabled_ = false;
     boxClipper_->SetInputDataAndReplaceOriginal(cylinderSource->GetOutput(), testActor);
+    // 初始化测量控制器
+    measurementController_ = std::make_unique<MeasurementController>(renderer_, interactor_);
     initSelectFilePath();
     initControlBtn();
+    initMeasurementMenu();
     renderWindow_->Render();
 }
 
@@ -237,6 +242,10 @@ void ThreeDimensionalDisplayPage::initControlBtn()
     QPushButton *zaxis_stretching_btn_ = new QPushButton("OK"); // 原：确定
     control_btn_layout_2->addWidget(zaxis_stretching_btn_);
 
+    // 测量按钮
+    measurement_btn_ = new QPushButton("measurement");
+    control_btn_layout_2->addWidget(measurement_btn_);
+
     connect(btnSliceX, &QPushButton::clicked, this, [=]()
             { meshSliceController_->ShowSlice(SLICE_X); renderWindow_->Render(); });
 
@@ -272,6 +281,26 @@ void ThreeDimensionalDisplayPage::initControlBtn()
     connect(pointsToggleButton_, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::togglePointsVisibility);
     connect(point_size_btn_, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::setPointSize);
     connect(zaxis_stretching_btn_, &QPushButton::clicked, this, &ThreeDimensionalDisplayPage::setZAxisStretching);
+}
+
+void ThreeDimensionalDisplayPage::initMeasurementMenu()
+{
+    measurementMenuWidget_ = new MeasurementMenuWidget(this);
+    // 连接槽函数（你已有的 measurementController_）
+    connect(measurementMenuWidget_, &MeasurementMenuWidget::pointMeasureRequested, this, [=]()
+            { measurementController_->setMode(MeasurementMode::Point); });
+    connect(measurementMenuWidget_, &MeasurementMenuWidget::lineMeasureRequested, this, [=]()
+            { measurementController_->setMode(MeasurementMode::Line); });
+    connect(measurementMenuWidget_, &MeasurementMenuWidget::triangleMeasureRequested, this, [=]()
+            { measurementController_->setMode(MeasurementMode::Triangle); });
+    connect(measurementMenuWidget_, &MeasurementMenuWidget::closeMeasureRequested, this, [=]()
+            { measurementController_->setMode(MeasurementMode::None); });
+
+    // 测量按钮点击后显示菜单（放在合适位置，如右上角）
+    connect(measurement_btn_, &QPushButton::clicked, this, [=]()
+            {
+        QPoint globalPos = mapToGlobal(QPoint(width() - 150, 50)); // 控制右上角偏移
+        measurementMenuWidget_->showMenu(globalPos); });
 }
 
 void ThreeDimensionalDisplayPage::loadModelByExtension(const QString &filePath)
@@ -328,19 +357,25 @@ void ThreeDimensionalDisplayPage::loadModelByExtension(const QString &filePath)
         boxClipper_->SetInputDataAndReplaceOriginal(model_pinpeline_builder_->getProcessedPolyData(),
                                                     surfaceActor_);
     }
-    // 1. 添加 BoundingBox
+    // 添加 BoundingBox
     addBoundingBox(model_pinpeline_builder_->getProcessedPolyData());
     boxClipper_enabled_ = false;
 
-    // 4. 重设相机、刷新渲染器
+    // 重设相机、刷新渲染器
     renderer_->ResetCamera();
     renderWindow_->Render();
 
-    // 5. 比例尺处理
+    // 比例尺处理
     if (scaleBarController_)
     {
         scaleBarController_->ReAddToRenderer();
         scaleBarController_->UpdateScaleBar(); // 主动触发更新比例尺显示
+    }
+
+    // 重新添加测量控件的 2D actor
+    if (measurementController_)
+    {
+        measurementController_->ReAddActorsToRenderer();
     }
 
     m_pScene->update(); // 最后刷新界面
@@ -543,7 +578,7 @@ void ThreeDimensionalDisplayPage::SlotCilckedCrossSectionBtn()
 {
     boxClipper_enabled_ = !boxClipper_enabled_;
     // 如果使用箱体切割器默认只显示面 目前只切割了面
-    if (boxClipper_enabled_)
+    if (boxClipper_enabled_ && model_pinpeline_builder_->getModelType() == ModelPipelineBuilder::ModelType::OBJ)
     {
         is_surface_visible_ = true;
         surfaceActor_->SetVisibility(is_surface_visible_);
@@ -741,4 +776,19 @@ void ThreeDimensionalDisplayPage::setZAxisStretching()
 
     boxClipper_enabled_ = false;
     renderWindow_->Render();
+}
+
+bool ThreeDimensionalDisplayPage::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_pScene && event->type() == QEvent::MouseButtonPress)
+    {
+        QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+        if (mouseEvent->button() == Qt::LeftButton)
+        {
+            if (measurementController_)
+                measurementController_->onLeftButtonPressed();
+            return true; // 拦截事件
+        }
+    }
+    return QWidget::eventFilter(obj, event); // 交给默认处理
 }

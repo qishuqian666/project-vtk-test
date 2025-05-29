@@ -26,6 +26,9 @@ set(SOURCES
     MeshSliceController.cpp
     BoxClipperController.cpp
     ModelPinelineBuilder.cpp
+    MeasurementController.cpp
+    MeasurementMenuWidget.cpp
+    # OverlayLineRenderer.cpp
     # 其他源文件
 )
 
@@ -35,6 +38,9 @@ set(HEADERS
     MeshSliceController.h
     BoxClipperController.h
     ModelPinelineBuilder.h
+    MeasurementController.h
+    MeasurementMenuWidget.h
+    # OverlayLineRenderer.h
     # 其他头文件
 )
 
